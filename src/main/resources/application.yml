@@ -1,6 +1,6 @@
 spring:
   application:
-    name: spring-01-boot
+    name: spring-00-basic
 
   datasource:
     url: jdbc:h2:mem:testdb
