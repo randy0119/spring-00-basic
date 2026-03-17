@@ -57,6 +57,47 @@
 
 ---
 
+### [핵심!] 🔄 컨트롤러 ↔ 서비스 연동 예시 (`/join`)
+
+현재 프로젝트의 회원가입 흐름은 다음과 같이 이어집니다.
+
+1. **클라이언트 요청 → DTO 매핑**
+   - `UserController` 의 `join` 엔드포인트에서 JSON 바디를 `joinRequest` DTO 로 받습니다.
+   - 예:
+
+     ```java
+     @PostMapping("/join")
+     public String join(@RequestBody joinRequest request) {
+         String id = request.getId();
+         String name = request.getName();
+         String email = request.getEmail();
+         String password = request.getPassword();
+         ...
+     }
+     ```
+
+2. **서비스 호출**
+   - 컨트롤러는 꺼낸 값들을 `UserService.join(...)` 에 넘겨줍니다.
+   - 컨트롤러는 “어떻게 저장하는지”는 모르고, **“가입 시도” 라는 의미만 전달**합니다.
+
+3. **서비스에서 비밀번호 해싱 + 저장**
+   - `UserServiceImpl` 에서:
+     - 비밀번호를 SHA-256 으로 해시
+     - `Member` 엔티티를 빌더로 생성
+     - `MemberRepository.save(member)` 로 DB 에 저장
+   - 이 단계에서 **도메인 규칙(중복 체크, 암호화, 트랜잭션 등)을 모두 처리**합니다.
+
+4. **컨트롤러에서 응답 생성**
+   - 서비스에서 돌아온 결과 문자열에 따라 `"success!"` / `"failed!"` 와 같은 응답 메시지를 정해 클라이언트에 반환합니다.
+
+이렇게 분리해 두면:
+
+- 컨트롤러는 **입력 검증·형식·응답 형태** 에 집중하고,
+- 서비스는 **회원가입 로직(암호화, 저장 등)** 에 집중하며,
+- 레포지토리는 **DB 저장/조회** 만 신경 쓰게 되어 각 계층 책임이 명확해집니다.
+
+---
+
 ### 정리
 
 이 `controller` 패키지는:
