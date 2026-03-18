@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import com.example.spring_01_boot.user.service.UserService;
 import com.example.spring_01_boot.user.controller.dto.joinRequest;
 import org.springframework.web.bind.annotation.RequestBody;
+import jakarta.validation.Valid;
 
 @RestController
 @RequiredArgsConstructor
@@ -20,7 +21,7 @@ public class UserController {
     }
 
     @PostMapping("/join")
-    public String join(@RequestBody joinRequest request)
+    public String join(@Valid @RequestBody joinRequest request)
     {
         String id = request.getId();
         String name = request.getName();
@@ -30,7 +31,7 @@ public class UserController {
         String result = userService.join(id, name, email, password);
 
 
-        if (result.equals("join success!")) {
+        if ("join success!".equals(result)) {
             return "success!";
         } else {
             return "failed!";
