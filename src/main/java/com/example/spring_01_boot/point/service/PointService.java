@@ -2,11 +2,15 @@ package com.example.spring_01_boot.point.service;
 
 import com.example.spring_01_boot.point.dto.PointOperationResponse;
 
+/**
+ * 포인트 조회·충전·사용.
+ * 충전/사용은 성공 시 {@link PointOperationResponse#balance()}, 실패 시 {@link PointOperationResponse#message()}를 확인합니다.
+ */
 public interface PointService {
+
     int getPoint(String userId);
-    /** 성공 시 처리 후 잔액 포함, 실패 시 메시지만 */
+
     PointOperationResponse chargePoint(String userId, int amount);
-    /** 성공 시 처리 후 잔액 포함, 실패 시 메시지만 */
+
     PointOperationResponse usePoint(String userId, int amount);
-    //List<PointTransaction> getPointTransactions(String userId, int limit);
 }
