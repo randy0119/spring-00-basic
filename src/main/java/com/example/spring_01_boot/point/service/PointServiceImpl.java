@@ -1,16 +1,21 @@
 package com.example.spring_01_boot.point.service;
 
 import com.example.spring_01_boot.point.dto.PointOperationResponse;
+import com.example.spring_01_boot.point.dto.PointTransactionItemResponse;
+import com.example.spring_01_boot.point.dto.PointTransactionsResponse;
 import com.example.spring_01_boot.point.repository.PointRepository;
 import com.example.spring_01_boot.point.repository.PointTransactionRepository;
 import com.example.spring_01_boot.point.repository.entity.Point;
 import com.example.spring_01_boot.point.repository.entity.PointTransaction;
 import com.example.spring_01_boot.point.repository.entity.PointTransactionType;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 
 import java.time.Instant;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -77,5 +82,23 @@ public class PointServiceImpl implements PointService {
             return PointOperationResponse.fail(
                 e.getMessage() != null ? e.getMessage() : "사용 처리 중 오류가 발생했습니다.");
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PointTransactionsResponse getTransactions(String userId, int limit) {
+        int pageSize = Math.min(Math.max(limit, 1), 200);
+        Pageable pageable = PageRequest.of(0, pageSize);
+        List<PointTransaction> rows =
+            pointTransactionRepository.findByUserIdOrderByTimestampDesc(userId, pageable);
+        List<PointTransactionItemResponse> items = rows.stream()
+            .map(tx -> new PointTransactionItemResponse(
+                tx.getId(),
+                tx.getTransactionType().name(),
+                tx.getAmount(),
+                tx.getAfterBalance(),
+                tx.getTimestamp()))
+            .toList();
+        return new PointTransactionsResponse(userId, items);
     }
 }

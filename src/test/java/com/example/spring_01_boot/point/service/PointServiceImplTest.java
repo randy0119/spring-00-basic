@@ -1,6 +1,7 @@
 package com.example.spring_01_boot.point.service;
 
 import com.example.spring_01_boot.point.dto.PointOperationResponse;
+import com.example.spring_01_boot.point.dto.PointTransactionsResponse;
 import com.example.spring_01_boot.point.repository.PointRepository;
 import com.example.spring_01_boot.point.repository.PointTransactionRepository;
 import com.example.spring_01_boot.point.repository.entity.Point;
@@ -19,6 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PointServiceImplTest {
 
     private static final String TEST_USER_ID = "point-test-user";
+    private static final String USER_A = "point-user-a";
+    private static final String USER_B = "point-user-b";
+    private static final String NO_TX_USER_ID = "no-tx-user";
 
     @Autowired
     private PointService pointService;
@@ -35,8 +39,10 @@ class PointServiceImplTest {
     @AfterEach
     void tearDown() {
         transactionTemplate.executeWithoutResult(status -> {
-            pointTransactionRepository.deleteByUserId(TEST_USER_ID);
-            pointRepository.deleteById(TEST_USER_ID);
+            for (String userId : new String[] { TEST_USER_ID, USER_A, USER_B, NO_TX_USER_ID }) {
+                pointTransactionRepository.deleteByUserId(userId);
+                pointRepository.deleteById(userId);
+            }
         });
     }
 
@@ -146,5 +152,77 @@ class PointServiceImplTest {
         assertThat(response.message()).contains("0보다");
         assertThat(response.balance()).isNull();
         assertThat(pointTransactionRepository.countByUserId(TEST_USER_ID)).isZero();
+    }
+
+    @Test
+    void getTransactions_whenNoTransactions_returnsEmptyList() {
+        transactionTemplate.executeWithoutResult(status -> {
+            pointTransactionRepository.deleteByUserId(NO_TX_USER_ID);
+            pointRepository.deleteById(NO_TX_USER_ID);
+        });
+
+        PointTransactionsResponse response = pointService.getTransactions(NO_TX_USER_ID, 20);
+
+        assertThat(response.userId()).isEqualTo(NO_TX_USER_ID);
+        assertThat(response.transactions()).isEmpty();
+        assertThat(pointTransactionRepository.countByUserId(NO_TX_USER_ID)).isZero();
+    }
+
+    @Test
+    void getTransactions_afterAbnormalOperation_doesNotAppendRow() {
+        pointRepository.deleteById(TEST_USER_ID);
+        assertThat(pointService.chargePoint(TEST_USER_ID, 100).success()).isTrue();
+        assertThat(pointTransactionRepository.countByUserId(TEST_USER_ID)).isEqualTo(1);
+
+        assertThat(pointService.chargePoint(TEST_USER_ID, 0).success()).isFalse();
+
+        assertThat(pointTransactionRepository.countByUserId(TEST_USER_ID)).isEqualTo(1);
+        PointTransactionsResponse response = pointService.getTransactions(TEST_USER_ID, 20);
+        assertThat(response.transactions()).hasSize(1);
+        assertThat(response.transactions().get(0).amount()).isEqualTo(100L);
+    }
+
+    @Test
+    void getTransactions_afterOneSuccessfulCharge_hasOneEntry() {
+        pointRepository.deleteById(TEST_USER_ID);
+        assertThat(pointService.chargePoint(TEST_USER_ID, 100).success()).isTrue();
+
+        PointTransactionsResponse response = pointService.getTransactions(TEST_USER_ID, 20);
+
+        assertThat(response.userId()).isEqualTo(TEST_USER_ID);
+        assertThat(response.transactions()).hasSize(1);
+        assertThat(response.transactions().get(0).type()).isEqualTo("CHARGE");
+        assertThat(response.transactions().get(0).amount()).isEqualTo(100L);
+        assertThat(response.transactions().get(0).balanceAfter()).isEqualTo(100L);
+    }
+
+    @Test
+    void getTransactions_twoUsersInterleaved_threeEachAndSixTotalInDb() {
+        transactionTemplate.executeWithoutResult(status -> {
+            pointTransactionRepository.deleteByUserId(USER_A);
+            pointTransactionRepository.deleteByUserId(USER_B);
+            pointRepository.deleteById(USER_A);
+            pointRepository.deleteById(USER_B);
+        });
+
+        assertThat(pointService.chargePoint(USER_A, 100).success()).isTrue();
+        assertThat(pointService.chargePoint(USER_B, 100).success()).isTrue();
+        assertThat(pointService.usePoint(USER_A, 10).success()).isTrue();
+        assertThat(pointService.usePoint(USER_B, 10).success()).isTrue();
+        assertThat(pointService.chargePoint(USER_A, 50).success()).isTrue();
+        assertThat(pointService.chargePoint(USER_B, 50).success()).isTrue();
+
+        PointTransactionsResponse forA = pointService.getTransactions(USER_A, 20);
+        PointTransactionsResponse forB = pointService.getTransactions(USER_B, 20);
+
+        assertThat(forA.transactions()).hasSize(3);
+        assertThat(forB.transactions()).hasSize(3);
+        assertThat(pointTransactionRepository.countByUserId(USER_A)).isEqualTo(3);
+        assertThat(pointTransactionRepository.countByUserId(USER_B)).isEqualTo(3);
+        assertThat(
+            pointTransactionRepository.countByUserId(USER_A)
+                + pointTransactionRepository.countByUserId(USER_B))
+            .isEqualTo(6);
+        assertThat(pointTransactionRepository.count()).isEqualTo(6);
     }
 }
