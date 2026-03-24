@@ -1,11 +1,16 @@
 package com.example.spring_01_boot.coupon.service;
 
 import com.example.spring_01_boot.coupon.dto.CouponCreateResponse;
+import com.example.spring_01_boot.coupon.dto.CouponIssueResponse;
+import com.example.spring_01_boot.coupon.exception.CouponIssueConflictException;
+import com.example.spring_01_boot.coupon.exception.CouponIssueConflictReason;
+import com.example.spring_01_boot.coupon.exception.CouponNotFoundException;
 import com.example.spring_01_boot.coupon.repository.CouponRepository;
+import com.example.spring_01_boot.coupon.repository.CouponTransactionRepository;
 import com.example.spring_01_boot.coupon.repository.entity.Coupon;
 import com.example.spring_01_boot.coupon.repository.entity.CouponStatus;
 import com.example.spring_01_boot.coupon.repository.entity.CouponTransaction;
-import com.example.spring_01_boot.coupon.repository.CouponTransactionRepository;
+import com.example.spring_01_boot.coupon.support.CouponIdParser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,7 +36,7 @@ public class CouponServiceImpl implements CouponService {
             );
 
         return new CouponCreateResponse(
-            "c-" + coupon.getId(),
+            CouponIdParser.toExternalId(coupon.getId()),
             coupon.getCouponName(),
             coupon.getTotalQuantity(),
             coupon.getIssuedQuantity(),
@@ -43,16 +48,47 @@ public class CouponServiceImpl implements CouponService {
 
     @Override
     @Transactional
-    public void issueCoupon(String couponName, String userId) {
-        Coupon coupon = couponRepository.findByCouponName(couponName)
-            .orElseThrow(() -> new IllegalArgumentException("쿠폰을 찾을 수 없습니다."));
-        try {
-            coupon.issue();
-            couponTransactionRepository.save(
-                new CouponTransaction(couponName, userId, Instant.now())
+    public CouponIssueResponse issueCoupon(String couponId, String userId) {
+        long dbId = CouponIdParser.parseToDbId(couponId);
+        Coupon coupon = couponRepository.findByIdForUpdate(dbId)
+            .orElseThrow(() -> new CouponNotFoundException("coupon not found: " + couponId));
+
+        Instant now = Instant.now();
+        String couponName = coupon.getCouponName();
+
+        if (couponTransactionRepository.existsByUserIdAndCouponName(userId, couponName)) {
+            throw new CouponIssueConflictException(
+                CouponIssueConflictReason.DUPLICATE_USER_COUPON,
+                "user already issued this coupon"
             );
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("쿠폰을 발급할 수 없습니다.");
         }
+
+        CouponStatus status = coupon.getStatus(now);
+        if (status == CouponStatus.EXPIRED) {
+            throw new CouponIssueConflictException(
+                CouponIssueConflictReason.COUPON_EXPIRED,
+                "coupon has expired"
+            );
+        }
+        if (status == CouponStatus.SOLD_OUT) {
+            throw new CouponIssueConflictException(
+                CouponIssueConflictReason.COUPON_SOLD_OUT,
+                "coupon is sold out"
+            );
+        }
+
+        coupon.issue();
+        CouponTransaction saved = couponTransactionRepository.save(
+            new CouponTransaction(couponName, userId, now)
+        );
+
+        return new CouponIssueResponse(
+            userId,
+            CouponIdParser.toExternalId(coupon.getId()),
+            "uc-" + saved.getId(),
+            "ISSUED",
+            now,
+            coupon.getExpireDate()
+        );
     }
 }

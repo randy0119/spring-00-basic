@@ -2,15 +2,16 @@ package com.example.spring_01_boot.coupon.controller;
 
 import com.example.spring_01_boot.coupon.controller.dto.newCouponRequest;
 import com.example.spring_01_boot.coupon.dto.CouponCreateResponse;
+import com.example.spring_01_boot.coupon.dto.CouponIssueRequest;
+import com.example.spring_01_boot.coupon.dto.CouponIssueResponse;
 import com.example.spring_01_boot.coupon.service.CouponService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 
 @RestController
 @Validated
@@ -23,8 +24,11 @@ public class couponController {
         return couponService.newCoupon(request.getName(), request.getTotalQuantity(), request.getExpiresAt());
     }
 
-    @GetMapping("/coupons/issue")
-    public void issueCoupon(@RequestParam String userId, @RequestParam String couponName) {
-        couponService.issueCoupon(couponName, userId);
+    @PostMapping("/coupons/{couponId}/issue")
+    public CouponIssueResponse issueCoupon(
+        @PathVariable String couponId,
+        @Valid @RequestBody CouponIssueRequest request
+    ) {
+        return couponService.issueCoupon(couponId, request.getUserId());
     }
 }
