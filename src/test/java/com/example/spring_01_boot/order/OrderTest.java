@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 public class OrderTest {
     private static final String USER_A = "order-user-a";
     private static final String USER_B = "order-user-b";
+    private static final String USER_EMPTY = "order-user-empty";
     private static final String BASKET_A = "basket-a";
     private static final String BASKET_B = "basket-b";
 
@@ -64,5 +65,35 @@ public class OrderTest {
         assertThat(first.getOrderId()).isNotEqualTo(second.getOrderId());
         assertThat(second.getBascketId()).isEqualTo(BASKET_B);
         assertThat(orderRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void getOrders_whenUserHasOrders_returnsOnlyThatUserOrders() {
+        orderService.createOrder(USER_A, "basket-a-1");
+        orderService.createOrder(USER_A, "basket-a-2");
+        orderService.createOrder(USER_B, "basket-b-1");
+
+        var result = orderService.getOrders(USER_A);
+
+        assertThat(result).hasSize(2);
+        assertThat(result).allMatch(order -> USER_A.equals(order.getUserId()));
+        assertThat(result).extracting(OrderResponse::getBascketId)
+            .containsExactlyInAnyOrder("basket-a-1", "basket-a-2");
+    }
+
+    @Test
+    void getOrders_whenUserHasNoOrders_returnsEmptyList() {
+        orderService.createOrder(USER_A, BASKET_A);
+
+        var result = orderService.getOrders(USER_EMPTY);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void getOrders_whenNoOrdersExist_returnsEmptyList() {
+        var result = orderService.getOrders(USER_A);
+
+        assertThat(result).isEmpty();
     }
 }
