@@ -1,10 +1,11 @@
-package com.example.spring_01_boot.coupon.controller.dto;
+package com.example.spring_01_boot.coupon.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import lombok.Data;
 import org.springframework.format.annotation.DateTimeFormat;
+
 import java.time.Instant;
 
 @Data

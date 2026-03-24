@@ -1,6 +1,8 @@
 package com.example.spring_01_boot.coupon.service;
 
 import com.example.spring_01_boot.coupon.dto.CouponCreateResponse;
+import com.example.spring_01_boot.coupon.dto.CouponTransactionItemResponse;
+import com.example.spring_01_boot.coupon.dto.CouponTransactionsResponse;
 import com.example.spring_01_boot.coupon.dto.CouponIssueResponse;
 import com.example.spring_01_boot.coupon.exception.CouponIssueConflictException;
 import com.example.spring_01_boot.coupon.exception.CouponIssueConflictReason;
@@ -14,7 +16,9 @@ import com.example.spring_01_boot.coupon.support.CouponIdParser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import java.util.List;
 import java.time.Instant;
 
 @Service
@@ -90,5 +94,22 @@ public class CouponServiceImpl implements CouponService {
             now,
             coupon.getExpireDate()
         );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CouponTransactionsResponse getTransactions(String userId, int limit) {
+        int pageSize = Math.min(Math.max(limit, 1), 200);
+        Pageable pageable = PageRequest.of(0, pageSize);
+        List<CouponTransaction> rows =
+            couponTransactionRepository.findByUserIdOrderByTimestampDesc(userId, pageable);
+        List<CouponTransactionItemResponse> items = rows.stream()
+            .map(tx -> new CouponTransactionItemResponse(
+                tx.getId(),
+                tx.getCouponName(),
+                tx.getTimestamp()
+            ))
+            .toList();
+        return new CouponTransactionsResponse(userId, items);
     }
 }
