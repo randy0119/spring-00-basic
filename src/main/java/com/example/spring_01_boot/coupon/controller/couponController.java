@@ -9,6 +9,8 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 
 @RestController
 @Validated
@@ -19,5 +21,10 @@ public class couponController {
     @PostMapping("/coupons")
     public CouponCreateResponse newCoupon(@Valid @RequestBody newCouponRequest request) {
         return couponService.newCoupon(request.getName(), request.getTotalQuantity(), request.getExpiresAt());
+    }
+
+    @GetMapping("/coupons/issue")
+    public void issueCoupon(@RequestParam String userId, @RequestParam String couponName) {
+        couponService.issueCoupon(couponName, userId);
     }
 }

@@ -61,4 +61,11 @@ public class Coupon {
         }
         return CouponStatus.AVAILABLE;
     }
+
+    public void issue() {
+        if (getStatus(Instant.now()) != CouponStatus.AVAILABLE) {
+            throw new IllegalArgumentException("쿠폰을 발급할 수 없습니다.");
+        }
+        this.issuedQuantity++;
+    }
 }

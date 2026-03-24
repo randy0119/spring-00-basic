@@ -2,6 +2,7 @@ package com.example.spring_01_boot.coupon;
 
 import com.example.spring_01_boot.coupon.dto.CouponCreateResponse;
 import com.example.spring_01_boot.coupon.repository.CouponRepository;
+import com.example.spring_01_boot.coupon.repository.CouponTransactionRepository;
 import com.example.spring_01_boot.coupon.repository.entity.Coupon;
 import com.example.spring_01_boot.coupon.repository.entity.CouponStatus;
 import com.example.spring_01_boot.coupon.service.CouponService;
@@ -14,12 +15,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 public class CouponTest {
 
     private static final String COUPON_A = "WELCOME-5000";
     private static final String COUPON_B = "FLASH-1000";
+    private static final String COUPON_ISSUE = "ISSUE-TEST";
+    private static final String USER_1 = "u-1001";
 
     @Autowired
     private CouponService couponService;
@@ -28,11 +32,17 @@ public class CouponTest {
     private CouponRepository couponRepository;
 
     @Autowired
+    private CouponTransactionRepository couponTransactionRepository;
+
+    @Autowired
     private TransactionTemplate transactionTemplate;
 
     @AfterEach
     void tearDown() {
-        transactionTemplate.executeWithoutResult(status -> couponRepository.deleteAll());
+        transactionTemplate.executeWithoutResult(status -> {
+            couponTransactionRepository.deleteAll();
+            couponRepository.deleteAll();
+        });
     }
 
     @Test
@@ -77,5 +87,40 @@ public class CouponTest {
         CouponCreateResponse response = couponService.newCoupon(COUPON_A, 10, pastExpiresAt);
 
         assertThat(response.status()).isEqualTo(CouponStatus.EXPIRED);
+    }
+
+    @Test
+    void issueCoupon_success_incrementsIssuedQuantityAndPersistsTransaction() {
+        Instant expiresAt = Instant.parse("2026-12-31T23:59:59Z");
+        couponService.newCoupon(COUPON_ISSUE, 10, expiresAt);
+
+        couponService.issueCoupon(COUPON_ISSUE, USER_1);
+
+        Coupon coupon = couponRepository.findByCouponName(COUPON_ISSUE).orElseThrow();
+        assertThat(coupon.getIssuedQuantity()).isEqualTo(1);
+        assertThat(couponTransactionRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void issueCoupon_wrongCouponName_throws() {
+        assertThatThrownBy(() -> couponService.issueCoupon("WRONG-NAME-NOT-EXISTS", USER_1))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("찾을 수 없습니다.");
+    }
+
+    @Test
+    void issueCoupon_whenQuantityExceeded_throwsAndDoesNotPersistExtraTransaction() {
+        Instant expiresAt = Instant.parse("2026-12-31T23:59:59Z");
+        couponService.newCoupon(COUPON_ISSUE, 1, expiresAt);
+
+        couponService.issueCoupon(COUPON_ISSUE, USER_1);
+
+        assertThatThrownBy(() -> couponService.issueCoupon(COUPON_ISSUE, USER_1))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("발급할 수 없습니다.");
+
+        Coupon coupon = couponRepository.findByCouponName(COUPON_ISSUE).orElseThrow();
+        assertThat(coupon.getIssuedQuantity()).isEqualTo(1);
+        assertThat(couponTransactionRepository.count()).isEqualTo(1);
     }
 }

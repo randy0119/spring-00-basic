@@ -5,4 +5,6 @@ import java.time.Instant;
 
 public interface CouponService {
     CouponCreateResponse newCoupon(String name, int totalQuantity, Instant expiresAt);
+
+    void issueCoupon(String couponName, String userId);
 }
