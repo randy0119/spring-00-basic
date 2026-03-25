@@ -43,4 +43,45 @@ public class OrderServiceImpl implements OrderService {
             ))
             .toList();
     }
+
+    @Override
+    public void pay(Long orderId) {
+        try {
+            Order order = orderRepository.findByOrderId(orderId);
+            order.pay();
+            orderRepository.save(order);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(e.getMessage());
+        } catch (RuntimeException e) {
+            throw new RuntimeException(e.getMessage());
+        }
+    }
+    
+    @Override
+    public void cancel(Long orderId) {
+        try {
+            Order order = orderRepository.findByOrderId(orderId);
+            order.cancel();
+            orderRepository.save(order);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(e.getMessage());
+        } catch (RuntimeException e) {
+            throw new RuntimeException(e.getMessage());
+        }
+    }
+
+    @Override
+    public OrderResponse getOrder(Long orderId) {
+        Order order = orderRepository.findByOrderId(orderId);
+        if (order == null) {
+            throw new IllegalArgumentException("주문 정보를 찾을 수 없습니다.");
+        }
+        return new OrderResponse(
+            order.getOrderId(),
+            order.getUserId(),
+            order.getBascketId(),
+            order.getOrderStatus(),
+            order.getCreatedAt()
+        );
+    }
 }
