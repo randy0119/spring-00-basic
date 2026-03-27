@@ -4,6 +4,7 @@ import com.example.spring_01_boot.global.exception.ServiceException;
 import com.example.spring_01_boot.remit.dto.RemitRequestResponse;
 import com.example.spring_01_boot.remit.repository.RemitRequestRepository;
 import com.example.spring_01_boot.remit.repository.entity.RemitRequest;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -13,10 +14,12 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Transactional
 public class RemitRequestServiceImpl implements RemitRequestService {
     private final RemitRequestRepository remitRequestRepository;
 
     @Override
+    @Transactional
     public RemitRequestResponse createRemitRequest(String requesterId, String receiverId, Integer amount){
         // 1. 본인에게 요청 제한
         if (requesterId.equals(receiverId)){
@@ -56,6 +59,7 @@ public class RemitRequestServiceImpl implements RemitRequestService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<RemitRequestResponse> getRemitRequestsByRequesterToReceiver(String requesterId, String receiverId) {
         // 둘 다 없을 때
         if (requesterId == null && receiverId == null) {
