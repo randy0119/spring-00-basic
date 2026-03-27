@@ -1,6 +1,7 @@
 package com.example.spring_01_boot.remit.service;
 
 import com.example.spring_01_boot.global.exception.ServiceException;
+import com.example.spring_01_boot.remit.client.PointClient;
 import com.example.spring_01_boot.remit.dto.RemitRequestResponse;
 import com.example.spring_01_boot.remit.repository.RemitRequestRepository;
 import com.example.spring_01_boot.remit.repository.entity.RemitRequest;
@@ -19,13 +20,16 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class RemitRequestServiceImplTest {
 
     @Mock
     private RemitRequestRepository remitRequestRepository;
+
+    @Mock
+    private PointClient pointClient;
 
     @InjectMocks
     private RemitRequestServiceImpl remitRequestService;
@@ -178,6 +182,139 @@ class RemitRequestServiceImplTest {
                     .hasMessage("요청자ID와 수신자ID를 확인해주세요.")
                     .satisfies(e -> assertThat(((ServiceException) e).getStatus())
                             .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+    }
+
+    // ──────────────────────────────────────────
+    // 송금 요청 수락/거절
+    // ──────────────────────────────────────────
+    @Nested
+    @DisplayName("송금 요청 수락/거절")
+    class DecisionRemitRequest {
+
+        private RemitRequest mockPendingRequest;
+
+        @BeforeEach
+        void setUp() {
+            mockPendingRequest = new RemitRequest("rmt_test9999", "testID-01", "testID-02", 10000);
+            mockPendingRequest.setStatus(RemitRequestStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("정상 수락 성공")
+        void decisionRemitRequest_accept_success() {
+            when(remitRequestRepository.findByRemitHashcodeAndReceiverId("rmt_test9999", "testID-02"))
+                    .thenReturn(mockPendingRequest);
+            when(pointClient.getBalance("testID-02")).thenReturn(20000);
+            when(remitRequestRepository.save(any(RemitRequest.class))).thenReturn(mockPendingRequest);
+
+            RemitRequestResponse response =
+                    remitRequestService.decisionRemitRequest("rmt_test9999", "testID-02", true);
+
+            assertThat(response.getStatus()).isEqualTo(RemitRequestStatus.ACCEPTED);
+            verify(pointClient).use("testID-02", 10000);     // 수신자 차감
+            verify(pointClient).charge("testID-01", 10000);  // 요청자 충전
+        }
+
+        @Test
+        @DisplayName("정상 거절 성공")
+        void decisionRemitRequest_reject_success() {
+            when(remitRequestRepository.findByRemitHashcodeAndReceiverId("rmt_test9999", "testID-02"))
+                    .thenReturn(mockPendingRequest);
+            when(remitRequestRepository.save(any(RemitRequest.class))).thenReturn(mockPendingRequest);
+
+            RemitRequestResponse response =
+                    remitRequestService.decisionRemitRequest("rmt_test9999", "testID-02", false);
+
+            assertThat(response.getStatus()).isEqualTo(RemitRequestStatus.REJECTED);
+            verify(pointClient, never()).use(any(), anyInt());    // 포인트 변동 없음
+            verify(pointClient, never()).charge(any(), anyInt()); // 포인트 변동 없음
+        }
+
+        @Test
+        @DisplayName("존재하지 않는 송금 요청 - 400")
+        void decisionRemitRequest_notFound_fail() {
+            when(remitRequestRepository.findByRemitHashcodeAndReceiverId(any(), any()))
+                    .thenReturn(null);
+
+            assertThatThrownBy(() ->
+                    remitRequestService.decisionRemitRequest("rmt_notexist", "testID-02", true)
+            )
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("올바른 송금요청 해시번호와 수신자 ID인지 확인해주세요.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+
+        @Test
+        @DisplayName("만료된 송금 요청 수락 시 실패 - 410")
+        void decisionRemitRequest_expired_fail() {
+            RemitRequest expiredRequest = new RemitRequest("rmt_test9999", "testID-01", "testID-02", 10000);
+            expiredRequest.setStatus(RemitRequestStatus.EXPIRED);
+            when(remitRequestRepository.findByRemitHashcodeAndReceiverId("rmt_test9999", "testID-02"))
+                    .thenReturn(expiredRequest);
+            when(remitRequestRepository.save(any(RemitRequest.class))).thenReturn(expiredRequest);
+
+            assertThatThrownBy(() ->
+                    remitRequestService.decisionRemitRequest("rmt_test9999", "testID-02", true)
+            )
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("이미 만료된 요청이에요.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.GONE));
+        }
+
+        @Test
+        @DisplayName("수신자 잔고 부족 시 수락 실패 - 409")
+        void decisionRemitRequest_insufficientBalance_fail() {
+            when(remitRequestRepository.findByRemitHashcodeAndReceiverId("rmt_test9999", "testID-02"))
+                    .thenReturn(mockPendingRequest);
+            when(pointClient.getBalance("testID-02")).thenReturn(5000); // 잔고 부족
+
+            assertThatThrownBy(() ->
+                    remitRequestService.decisionRemitRequest("rmt_test9999", "testID-02", true)
+            )
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("잔고를 확인해주세요.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.CONFLICT));
+
+            verify(pointClient, never()).use(any(), anyInt());    // 차감 안 됨
+            verify(pointClient, never()).charge(any(), anyInt()); // 충전 안 됨
+        }
+
+        @Test
+        @DisplayName("이미 수락된 요청에 다시 응답 시 실패 - 409")
+        void decisionRemitRequest_alreadyAccepted_fail() {
+            RemitRequest acceptedRequest = new RemitRequest("rmt_test9999", "testID-01", "testID-02", 10000);
+            acceptedRequest.setStatus(RemitRequestStatus.ACCEPTED);
+            when(remitRequestRepository.findByRemitHashcodeAndReceiverId("rmt_test9999", "testID-02"))
+                    .thenReturn(acceptedRequest);
+
+            assertThatThrownBy(() ->
+                    remitRequestService.decisionRemitRequest("rmt_test9999", "testID-02", true)
+            )
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("이미 처리된 요청이에요.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.CONFLICT));
+        }
+
+        @Test
+        @DisplayName("이미 거절된 요청에 다시 응답 시 실패 - 409")
+        void decisionRemitRequest_alreadyRejected_fail() {
+            RemitRequest rejectedRequest = new RemitRequest("rmt_test9999", "testID-01", "testID-02", 10000);
+            rejectedRequest.setStatus(RemitRequestStatus.REJECTED);
+            when(remitRequestRepository.findByRemitHashcodeAndReceiverId("rmt_test9999", "testID-02"))
+                    .thenReturn(rejectedRequest);
+
+            assertThatThrownBy(() ->
+                    remitRequestService.decisionRemitRequest("rmt_test9999", "testID-02", false)
+            )
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("이미 처리된 요청이에요.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.CONFLICT));
         }
     }
 }

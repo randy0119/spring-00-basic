@@ -13,6 +13,7 @@ import java.time.Instant;
 @AllArgsConstructor
 @Builder
 @Getter
+@Setter
 public class RemitRequest {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

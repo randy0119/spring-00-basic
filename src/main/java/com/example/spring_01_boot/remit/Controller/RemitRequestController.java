@@ -1,5 +1,7 @@
 package com.example.spring_01_boot.remit.Controller;
 
+import com.example.spring_01_boot.remit.dto.Decision;
+import com.example.spring_01_boot.remit.dto.RemitDecisionRequest;
 import com.example.spring_01_boot.remit.dto.RemitRequest;
 import com.example.spring_01_boot.remit.dto.RemitRequestResponse;
 import com.example.spring_01_boot.remit.service.RemitRequestService;
@@ -25,5 +27,10 @@ public class RemitRequestController {
             @RequestParam(required = false) String requesterId,
             @RequestParam(required = false) String receiverId) {
         return remitRequestService.getRemitRequestsByRequesterToReceiver(requesterId, receiverId);
+    }
+
+    @PostMapping("/remit/decision")
+    public RemitRequestResponse decisionRemitRequest(@Valid @RequestBody RemitDecisionRequest req) {
+        return remitRequestService.decisionRemitRequest(req.getRemitHashcode(), req.getReceiverId(), req.getDecision().equals(Decision.ACCEPT));
     }
 }

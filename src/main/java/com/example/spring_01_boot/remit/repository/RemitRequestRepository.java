@@ -10,4 +10,5 @@ public interface RemitRequestRepository extends JpaRepository<RemitRequest, Long
     List<RemitRequest> findAllByRequesterId(String requesterId);
     List<RemitRequest> findAllByReceiverId(String receiverId);
     List<RemitRequest> findAllByRequesterIdAndReceiverId(String requesterId, String receiverId);
+    RemitRequest findByRemitHashcodeAndReceiverId(String remitHashcode,  String receiverId);
 }
