@@ -17,13 +17,13 @@ public class RemitRequest {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id")
-    private Long remit_id;
+    private Long remitId;
     @Column(name = "hash_code", unique = true,nullable = false)
-    private String remit_hashcode;
+    private String remitHashcode;
     @Column(name = "requester_id", nullable = false)
-    private String requester_id;
+    private String requesterId;
     @Column(name = "receiver_id", nullable = false)
-    private String receiver_id;
+    private String receiverId;
     @Min(1)
     @Max(10000000)
     @Column(name = "amount", nullable = false)
@@ -31,24 +31,24 @@ public class RemitRequest {
     @Column(name = "status", nullable = false)
     private RemitRequestStatus status;
     @Column(name = "created_at", nullable = false)
-    private Instant created_at;
+    private Instant createdAt;
     @Column(name = "expired_at", nullable = false)
-    private Instant expired_at;
+    private Instant expiredAt;
     @Column(name = "updated_at", nullable = true)
-    private Instant updated_at;
+    private Instant updatedAt;
 
     public RemitRequest(String remit_hashcode, String requester_id, String receiver_id, Integer amount) {
-        this.remit_hashcode = remit_hashcode;
-        this.requester_id = requester_id;
-        this.receiver_id = receiver_id;
+        this.remitHashcode = remit_hashcode;
+        this.requesterId = requester_id;
+        this.receiverId = receiver_id;
         this.amount = amount;
         this.status = RemitRequestStatus.PENDING;
-        this.created_at = Instant.now();
-        this.expired_at = this.created_at.plusSeconds(600);
+        this.createdAt = Instant.now();
+        this.expiredAt = this.createdAt.plusSeconds(600);
     }
 
     public void setStatus(RemitRequestStatus status) {
         this.status = status;
-        this.updated_at = Instant.now();
+        this.updatedAt = Instant.now();
     }
 }

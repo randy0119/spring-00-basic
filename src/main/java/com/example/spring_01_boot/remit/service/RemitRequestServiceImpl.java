@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -43,14 +44,53 @@ public class RemitRequestServiceImpl implements RemitRequestService {
 
         // 6. DTO 변환 후 반환
         return new RemitRequestResponse(
-                saved.getRemit_hashcode(),
-                saved.getRequester_id(),
-                saved.getReceiver_id(),
+                saved.getRemitHashcode(),
+                saved.getRequesterId(),
+                saved.getReceiverId(),
                 saved.getAmount(),
                 saved.getStatus(),
-                saved.getCreated_at(),
-                saved.getExpired_at(),
-                "정상적으로 송금 요청했어요."
+                saved.getCreatedAt(),
+                saved.getExpiredAt(),
+                saved.getStatus().getMessage()
         );
+    }
+
+    @Override
+    public List<RemitRequestResponse> getRemitRequestsByRequesterToReceiver(String requesterId, String receiverId) {
+        // 둘 다 없을 때
+        if (requesterId == null && receiverId == null) {
+            throw new ServiceException(HttpStatus.BAD_REQUEST, "요청자ID 또는 수신자ID를 입력해주세요.");
+        }
+
+        // 동일인
+        if (requesterId != null && requesterId.equals(receiverId)) {
+            throw new ServiceException(HttpStatus.BAD_REQUEST, "요청자ID와 수신자ID를 확인해주세요.");
+        }
+
+        List<RemitRequest> remitRequests;
+
+        if (requesterId != null && receiverId != null) {
+            // 둘 다 있을 때
+            remitRequests = remitRequestRepository.findAllByRequesterIdAndReceiverId(requesterId, receiverId);
+        } else if (requesterId != null) {
+            // 요청자만 있을 때
+            remitRequests = remitRequestRepository.findAllByRequesterId(requesterId);
+        } else {
+            // 수신자만 있을 때
+            remitRequests = remitRequestRepository.findAllByReceiverId(receiverId);
+        }
+
+        return remitRequests.stream().map(
+                remitRequest -> new RemitRequestResponse(
+                        remitRequest.getRemitHashcode(),
+                        remitRequest.getRequesterId(),
+                        remitRequest.getReceiverId(),
+                        remitRequest.getAmount(),
+                        remitRequest.getStatus(),
+                        remitRequest.getCreatedAt(),
+                        remitRequest.getExpiredAt(),
+                        remitRequest.getStatus().getMessage()
+                )
+        ).toList();
     }
 }

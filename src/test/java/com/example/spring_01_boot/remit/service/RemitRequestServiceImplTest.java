@@ -7,12 +7,15 @@ import com.example.spring_01_boot.remit.repository.entity.RemitRequest;
 import com.example.spring_01_boot.remit.repository.entity.RemitRequestStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -27,67 +30,154 @@ class RemitRequestServiceImplTest {
     @InjectMocks
     private RemitRequestServiceImpl remitRequestService;
 
-    private RemitRequest mockSavedEntity;
+    // ──────────────────────────────────────────
+    // 송금 요청 생성
+    // ──────────────────────────────────────────
+    @Nested
+    @DisplayName("송금 요청 생성")
+    class CreateRemitRequest {
 
-    @BeforeEach
-    void setUp() {
-        mockSavedEntity = new RemitRequest("rmt_test1234", "testID-01", "testID-02", 10000);
-        mockSavedEntity.setStatus(RemitRequestStatus.PENDING);
+        private RemitRequest mockSavedEntity;
+
+        @BeforeEach
+        void setUp() {
+            mockSavedEntity = new RemitRequest("rmt_test1234", "testID-01", "testID-02", 10000);
+            mockSavedEntity.setStatus(RemitRequestStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("정상 송금 요청 생성")
+        void createRemitRequest_success() {
+            when(remitRequestRepository.save(any(RemitRequest.class))).thenReturn(mockSavedEntity);
+
+            RemitRequestResponse response = remitRequestService.createRemitRequest("testID-01", "testID-02", 10000);
+
+            assertThat(response.getRequesterId()).isEqualTo("testID-01");
+            assertThat(response.getReceiverId()).isEqualTo("testID-02");
+            assertThat(response.getAmount()).isEqualTo(10000);
+            assertThat(response.getStatus()).isEqualTo(RemitRequestStatus.PENDING);
+            assertThat(response.getRemitHashCode()).startsWith("rmt_");
+        }
+
+        @Test
+        @DisplayName("본인에게 송금 요청 시 실패")
+        void createRemitRequest_selfRemit_fail() {
+            assertThatThrownBy(() ->
+                    remitRequestService.createRemitRequest("testID-01", "testID-01", 10000)
+            )
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("송금요청 대상이 본인이에요.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+
+        @Test
+        @DisplayName("요청 금액이 0 이하일 때 실패")
+        void createRemitRequest_invalidAmount_zero_fail() {
+            assertThatThrownBy(() ->
+                    remitRequestService.createRemitRequest("testID-01", "testID-02", 0)
+            )
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("요청 금액은 0보다 커야 해요.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+
+        @Test
+        @DisplayName("요청 금액이 최대 한도 초과 시 실패")
+        void createRemitRequest_invalidAmount_overMax_fail() {
+            assertThatThrownBy(() ->
+                    remitRequestService.createRemitRequest("testID-01", "testID-02", 10000001)
+            )
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("1회 최대 송금 요청 금액은 10,000,000원을 넘길 수 없어요.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
     }
 
-    @Test
-    @DisplayName("정상 송금 요청 생성")
-    void createRemitRequest_success() {
-        // given
-        when(remitRequestRepository.save(any(RemitRequest.class))).thenReturn(mockSavedEntity);
+    // ──────────────────────────────────────────
+    // 송금 요청 목록 조회
+    // ──────────────────────────────────────────
+    @Nested
+    @DisplayName("송금 요청 목록 조회")
+    class GetRemitRequests {
 
-        // when
-        RemitRequestResponse response = remitRequestService.createRemitRequest("testID-01", "testID-02", 10000);
+        private RemitRequest mockRequesterRequest;
+        private RemitRequest mockReceiverRequest;
 
-        // then
-        assertThat(response.getRequesterId()).isEqualTo("testID-01");
-        assertThat(response.getReceiverId()).isEqualTo("testID-02");
-        assertThat(response.getAmount()).isEqualTo(10000);
-        assertThat(response.getStatus()).isEqualTo(RemitRequestStatus.PENDING);
-        assertThat(response.getRemitHashCode()).startsWith("rmt_");
-    }
+        @BeforeEach
+        void setUp() {
+            mockRequesterRequest = new RemitRequest("rmt_test0001", "testID-03", "testID-04", 10000);
+            mockRequesterRequest.setStatus(RemitRequestStatus.PENDING);
 
-    @Test
-    @DisplayName("본인에게 송금 요청 시 실패")
-    void createRemitRequest_selfRemit_fail() {
-        // when & then
-        assertThatThrownBy(() ->
-                remitRequestService.createRemitRequest("testID-01", "testID-01", 10000)
-        )
-                .isInstanceOf(ServiceException.class)
-                .hasMessage("송금요청 대상이 본인이에요.")
-                .satisfies(e -> assertThat(((ServiceException) e).getStatus())
-                        .isEqualTo(HttpStatus.BAD_REQUEST));
-    }
+            mockReceiverRequest = new RemitRequest("rmt_test0002", "testID-05", "testID-04", 20000);
+            mockReceiverRequest.setStatus(RemitRequestStatus.PENDING);
+        }
 
-    @Test
-    @DisplayName("요청 금액이 0 이하일 때 실패")
-    void createRemitRequest_invalidAmount_zero_fail() {
-        // when & then
-        assertThatThrownBy(() ->
-                remitRequestService.createRemitRequest("testID-01", "testID-02", 0)
-        )
-                .isInstanceOf(ServiceException.class)
-                .hasMessage("요청 금액은 0보다 커야 해요.")
-                .satisfies(e -> assertThat(((ServiceException) e).getStatus())
-                        .isEqualTo(HttpStatus.BAD_REQUEST));
-    }
+        @Test
+        @DisplayName("요청자ID로 조회 성공")
+        void getRemitRequests_byRequesterId_success() {
+            when(remitRequestRepository.findAllByRequesterId("testID-03"))
+                    .thenReturn(List.of(mockRequesterRequest));
 
-    @Test
-    @DisplayName("요청 금액이 최대 한도 초과 시 실패")
-    void createRemitRequest_invalidAmount_overMax_fail() {
-        // when & then
-        assertThatThrownBy(() ->
-                remitRequestService.createRemitRequest("testID-01", "testID-02", 10000001)
-        )
-                .isInstanceOf(ServiceException.class)
-                .hasMessage("1회 최대 송금 요청 금액은 10,000,000원을 넘길 수 없어요.")
-                .satisfies(e -> assertThat(((ServiceException) e).getStatus())
-                        .isEqualTo(HttpStatus.BAD_REQUEST));
+            List<RemitRequestResponse> result =
+                    remitRequestService.getRemitRequestsByRequesterToReceiver("testID-03", null);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getRequesterId()).isEqualTo("testID-03");
+        }
+
+        @Test
+        @DisplayName("수신자ID로 조회 성공")
+        void getRemitRequests_byReceiverId_success() {
+            when(remitRequestRepository.findAllByReceiverId("testID-04"))
+                    .thenReturn(List.of(mockRequesterRequest, mockReceiverRequest));
+
+            List<RemitRequestResponse> result =
+                    remitRequestService.getRemitRequestsByRequesterToReceiver(null, "testID-04");
+
+            assertThat(result).hasSize(2);
+            assertThat(result.get(0).getReceiverId()).isEqualTo("testID-04");
+            assertThat(result.get(1).getReceiverId()).isEqualTo("testID-04");
+        }
+
+        @Test
+        @DisplayName("요청자ID + 수신자ID 둘 다 입력 시 조회 성공")
+        void getRemitRequests_byBoth_success() {
+            when(remitRequestRepository.findAllByRequesterIdAndReceiverId("testID-03", "testID-04"))
+                    .thenReturn(List.of(mockRequesterRequest));
+
+            List<RemitRequestResponse> result =
+                    remitRequestService.getRemitRequestsByRequesterToReceiver("testID-03", "testID-04");
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).getRequesterId()).isEqualTo("testID-03");
+            assertThat(result.get(0).getReceiverId()).isEqualTo("testID-04");
+        }
+
+        @Test
+        @DisplayName("요청자ID와 수신자ID 둘 다 null일 때 실패 - 400")
+        void getRemitRequests_bothNull_fail() {
+            assertThatThrownBy(() ->
+                    remitRequestService.getRemitRequestsByRequesterToReceiver(null, null)
+            )
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("요청자ID 또는 수신자ID를 입력해주세요.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+
+        @Test
+        @DisplayName("요청자ID와 수신자ID가 동일할 때 실패 - 400")
+        void getRemitRequests_sameId_fail() {
+            assertThatThrownBy(() ->
+                    remitRequestService.getRemitRequestsByRequesterToReceiver("testID-03", "testID-03")
+            )
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("요청자ID와 수신자ID를 확인해주세요.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
     }
 }
