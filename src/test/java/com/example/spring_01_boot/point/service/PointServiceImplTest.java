@@ -1,228 +1,275 @@
 package com.example.spring_01_boot.point.service;
 
+import com.example.spring_01_boot.global.exception.ServiceException;
 import com.example.spring_01_boot.point.dto.PointOperationResponse;
 import com.example.spring_01_boot.point.dto.PointTransactionsResponse;
 import com.example.spring_01_boot.point.repository.PointRepository;
 import com.example.spring_01_boot.point.repository.PointTransactionRepository;
 import com.example.spring_01_boot.point.repository.entity.Point;
+import com.example.spring_01_boot.point.repository.entity.PointTransaction;
 import com.example.spring_01_boot.point.repository.entity.PointTransactionType;
-import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
-@SpringBootTest
-class PointServiceImplTest {
+@ExtendWith(MockitoExtension.class)
+class PointServiceImplUnitTest {
 
-    private static final String TEST_USER_ID = "point-test-user";
-    private static final String USER_A = "point-user-a";
-    private static final String USER_B = "point-user-b";
-    private static final String NO_TX_USER_ID = "no-tx-user";
-
-    @Autowired
-    private PointService pointService;
-
-    @Autowired
+    @Mock
     private PointRepository pointRepository;
 
-    @Autowired
+    @Mock
     private PointTransactionRepository pointTransactionRepository;
 
-    @Autowired
-    private TransactionTemplate transactionTemplate;
+    @InjectMocks
+    private PointServiceImpl pointService;
 
-    @AfterEach
-    void tearDown() {
-        transactionTemplate.executeWithoutResult(status -> {
-            for (String userId : new String[] { TEST_USER_ID, USER_A, USER_B, NO_TX_USER_ID }) {
-                pointTransactionRepository.deleteByUserId(userId);
-                pointRepository.deleteById(userId);
-            }
-        });
+    // ──────────────────────────────────────────
+    // 잔액 조회
+    // ──────────────────────────────────────────
+    @Nested
+    @DisplayName("잔액 조회")
+    class GetPoint {
+
+        @Test
+        @DisplayName("유저 행이 있으면 잔액 반환")
+        void getPoint_existingUser_returnsBalance() {
+            when(pointRepository.findById("user-01"))
+                    .thenReturn(Optional.of(new Point("user-01", 500L)));
+
+            long balance = pointService.getPoint("user-01").getBalance();
+
+            assertThat(balance).isEqualTo(500L);
+        }
+
+        @Test
+        @DisplayName("유저 행이 없으면 0으로 생성 후 반환")
+        void getPoint_newUser_createsRowAndReturnsZero() {
+            when(pointRepository.findById("user-01")).thenReturn(Optional.empty());
+            when(pointRepository.save(any(Point.class))).thenReturn(new Point("user-01", 0L));
+
+            long balance = pointService.getPoint("user-01").getBalance();
+
+            assertThat(balance).isEqualTo(0L);
+            verify(pointRepository).save(any(Point.class));
+        }
     }
 
-    @Test
-    void getPoint_whenUserRowDoesNotExist_returnsZeroAndCreatesRow() {
-        // given
-        pointRepository.deleteById(TEST_USER_ID);
+    // ──────────────────────────────────────────
+    // 포인트 충전
+    // ──────────────────────────────────────────
+    @Nested
+    @DisplayName("포인트 충전")
+    class ChargePoint {
 
-        // when
-        int balance = pointService.getPoint(TEST_USER_ID);
+        @Test
+        @DisplayName("정상 충전 성공")
+        void chargePoint_success() {
+            Point point = new Point("user-01", 0L);
+            when(pointRepository.findById("user-01")).thenReturn(Optional.of(point));
+            when(pointRepository.save(any(Point.class))).thenReturn(point);
+            when(pointTransactionRepository.save(any(PointTransaction.class)))
+                    .thenReturn(any(PointTransaction.class));
 
-        // then
-        assertThat(balance).isEqualTo(0);
+            PointOperationResponse response = pointService.chargePoint("user-01", 100);
 
-        Optional<Point> createdPoint = pointRepository.findById(TEST_USER_ID);
-        assertThat(createdPoint).isPresent();
-        assertThat(createdPoint.get().getBalance()).isEqualTo(0L);
+            assertThat(response.getMessage()).isEqualTo("충전이 완료되었습니다.");
+            assertThat(response.getBalance()).isEqualTo(100L);
+        }
+
+        @Test
+        @DisplayName("신규 유저 충전 시 행 생성 후 충전")
+        void chargePoint_newUser_createsRowAndCharges() {
+            Point newPoint = new Point("user-01", 0L);
+            when(pointRepository.findById("user-01")).thenReturn(Optional.empty());
+            when(pointRepository.save(any(Point.class))).thenReturn(newPoint);
+
+            PointOperationResponse response = pointService.chargePoint("user-01", 100);
+
+            assertThat(response.getMessage()).isEqualTo("충전이 완료되었습니다.");
+            verify(pointRepository, times(2)).save(any(Point.class)); // 생성 + 충전 후 저장
+        }
+
+        @Test
+        @DisplayName("금액이 0일 때 실패 - 400")
+        void chargePoint_zeroAmount_fail() {
+            assertThatThrownBy(() -> pointService.chargePoint("user-01", 0))
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("금액은 0보다 커야 합니다.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+
+        @Test
+        @DisplayName("금액이 음수일 때 실패 - 400")
+        void chargePoint_negativeAmount_fail() {
+            assertThatThrownBy(() -> pointService.chargePoint("user-01", -1))
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("금액은 0보다 커야 합니다.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
     }
 
-    @Test
-    void getPoint_whenCalledTwice_doesNotCreateDuplicateRow() {
-        // given
-        pointRepository.deleteById(TEST_USER_ID);
+    // ──────────────────────────────────────────
+    // 포인트 사용
+    // ──────────────────────────────────────────
+    @Nested
+    @DisplayName("포인트 사용")
+    class UsePoint {
 
-        // when
-        int firstBalance = pointService.getPoint(TEST_USER_ID);
-        long countAfterFirstCall = pointRepository.count();
-        int secondBalance = pointService.getPoint(TEST_USER_ID);
-        long countAfterSecondCall = pointRepository.count();
+        @Test
+        @DisplayName("정상 사용 성공")
+        void usePoint_success() {
+            Point point = new Point("user-01", 200L);
+            when(pointRepository.findById("user-01")).thenReturn(Optional.of(point));
+            when(pointRepository.save(any(Point.class))).thenReturn(point);
 
-        // then
-        assertThat(firstBalance).isEqualTo(0);
-        assertThat(secondBalance).isEqualTo(0);
-        assertThat(countAfterSecondCall).isEqualTo(countAfterFirstCall);
-        assertThat(pointRepository.findById(TEST_USER_ID)).isPresent();
+            PointOperationResponse response = pointService.usePoint("user-01", 50);
+
+            assertThat(response.getMessage()).isEqualTo("포인트 사용이 완료되었습니다.");
+            assertThat(response.getBalance()).isEqualTo(150L);
+        }
+
+        @Test
+        @DisplayName("잔액 부족 시 실패 - 409")
+        void usePoint_insufficientBalance_fail() {
+            Point point = new Point("user-01", 10L);
+            when(pointRepository.findById("user-01")).thenReturn(Optional.of(point));
+
+            // Point.use()에서 잔액 부족 시 ServiceException을 던진다고 가정
+            assertThatThrownBy(() -> pointService.usePoint("user-01", 100))
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("잔액이 부족합니다.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.CONFLICT));
+        }
+
+        @Test
+        @DisplayName("유저 행 없을 때 실패 - 400")
+        void usePoint_noUser_fail() {
+            when(pointRepository.findById("user-01")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> pointService.usePoint("user-01", 50))
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("존재하지 않는 사용자 입니다.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+
+        @Test
+        @DisplayName("금액이 0일 때 실패 - 400")
+        void usePoint_zeroAmount_fail() {
+            assertThatThrownBy(() -> pointService.usePoint("user-01", 0))
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("금액은 0보다 커야 합니다.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+
+        @Test
+        @DisplayName("금액이 음수일 때 실패 - 400")
+        void usePoint_negativeAmount_fail() {
+            assertThatThrownBy(() -> pointService.usePoint("user-01", -1))
+                    .isInstanceOf(ServiceException.class)
+                    .hasMessage("금액은 0보다 커야 합니다.")
+                    .satisfies(e -> assertThat(((ServiceException) e).getStatus())
+                            .isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+
+        @Test
+        @DisplayName("사용 후 거래 내역 저장")
+        void usePoint_savesTransaction() {
+            Point point = new Point("user-01", 200L);
+            when(pointRepository.findById("user-01")).thenReturn(Optional.of(point));
+            when(pointRepository.save(any(Point.class))).thenReturn(point);
+
+            pointService.usePoint("user-01", 50);
+
+            verify(pointTransactionRepository).save(any(PointTransaction.class));
+        }
     }
 
-    @Test
-    void chargePoint_success_increasesBalanceAndPersistsChargeTransaction() {
-        pointRepository.deleteById(TEST_USER_ID);
+    // ──────────────────────────────────────────
+    // 거래 내역 조회
+    // ──────────────────────────────────────────
+    @Nested
+    @DisplayName("거래 내역 조회")
+    class GetTransactions {
 
-        PointOperationResponse response = pointService.chargePoint(TEST_USER_ID, 100);
+        @Test
+        @DisplayName("거래 내역 없을 때 빈 리스트 반환")
+        void getTransactions_empty() {
+            when(pointTransactionRepository.findByUserIdOrderByTimestampDesc(
+                    eq("user-01"), any(Pageable.class)))
+                    .thenReturn(List.of());
 
-        assertThat(response.success()).isTrue();
-        assertThat(response.balance()).isEqualTo(100L);
-        assertThat(pointRepository.findById(TEST_USER_ID)).isPresent();
-        assertThat(pointRepository.findById(TEST_USER_ID).get().getBalance()).isEqualTo(100L);
-        assertThat(pointTransactionRepository.countByUserId(TEST_USER_ID)).isEqualTo(1);
-        assertThat(pointTransactionRepository.countByUserIdAndTransactionType(TEST_USER_ID, PointTransactionType.CHARGE))
-            .isEqualTo(1);
-    }
+            PointTransactionsResponse response = pointService.getTransactions("user-01", 20);
 
-    @Test
-    void usePoint_withinBalance_succeedsAndPersistsUseTransaction() {
-        pointRepository.deleteById(TEST_USER_ID);
-        pointService.chargePoint(TEST_USER_ID, 200);
+            assertThat(response.userId()).isEqualTo("user-01");
+            assertThat(response.transactions()).isEmpty();
+        }
 
-        PointOperationResponse response = pointService.usePoint(TEST_USER_ID, 50);
+        @Test
+        @DisplayName("거래 내역 반환")
+        void getTransactions_returnsItems() {
+            PointTransaction tx = new PointTransaction(
+                    "user-01", PointTransactionType.CHARGE, 100, 100L, Instant.now());
+            ReflectionTestUtils.setField(tx, "id", 1L);
+            when(pointTransactionRepository.findByUserIdOrderByTimestampDesc(
+                    eq("user-01"), any(Pageable.class)))
+                    .thenReturn(List.of(tx));
 
-        assertThat(response.success()).isTrue();
-        assertThat(response.balance()).isEqualTo(150L);
-        assertThat(pointRepository.findById(TEST_USER_ID).get().getBalance()).isEqualTo(150L);
-        assertThat(pointTransactionRepository.countByUserId(TEST_USER_ID)).isEqualTo(2);
-        assertThat(pointTransactionRepository.countByUserIdAndTransactionType(TEST_USER_ID, PointTransactionType.CHARGE))
-            .isEqualTo(1);
-        assertThat(pointTransactionRepository.countByUserIdAndTransactionType(TEST_USER_ID, PointTransactionType.USE))
-            .isEqualTo(1);
-    }
+            PointTransactionsResponse response = pointService.getTransactions("user-01", 20);
 
-    @Test
-    void usePoint_exceedsBalance_failsWithoutUseTransaction() {
-        pointRepository.deleteById(TEST_USER_ID);
-        pointService.chargePoint(TEST_USER_ID, 10);
+            assertThat(response.transactions()).hasSize(1);
+            assertThat(response.transactions().get(0).getType()).isEqualTo("CHARGE");
+            assertThat(response.transactions().get(0).getAmount()).isEqualTo(100L);
+        }
 
-        PointOperationResponse response = pointService.usePoint(TEST_USER_ID, 100);
+        @Test
+        @DisplayName("limit이 200 초과 시 200으로 제한")
+        void getTransactions_limitCapped() {
+            when(pointTransactionRepository.findByUserIdOrderByTimestampDesc(
+                    eq("user-01"), any(Pageable.class)))
+                    .thenReturn(List.of());
 
-        assertThat(response.success()).isFalse();
-        assertThat(response.message()).contains("부족");
-        assertThat(response.balance()).isNull();
-        assertThat(pointRepository.findById(TEST_USER_ID).get().getBalance()).isEqualTo(10L);
-        assertThat(pointTransactionRepository.countByUserIdAndTransactionType(TEST_USER_ID, PointTransactionType.USE))
-            .isZero();
-        assertThat(pointTransactionRepository.countByUserIdAndTransactionType(TEST_USER_ID, PointTransactionType.CHARGE))
-            .isEqualTo(1);
-    }
+            pointService.getTransactions("user-01", 999);
 
-    @Test
-    void chargePoint_amountZero_failsAndDoesNotPersist() {
-        pointRepository.deleteById(TEST_USER_ID);
+            verify(pointTransactionRepository).findByUserIdOrderByTimestampDesc(
+                    eq("user-01"),
+                    argThat(p -> p.getPageSize() == 200));
+        }
 
-        PointOperationResponse response = pointService.chargePoint(TEST_USER_ID, 0);
+        @Test
+        @DisplayName("limit이 1 미만 시 1로 제한")
+        void getTransactions_limitFloor() {
+            when(pointTransactionRepository.findByUserIdOrderByTimestampDesc(
+                    eq("user-01"), any(Pageable.class)))
+                    .thenReturn(List.of());
 
-        assertThat(response.success()).isFalse();
-        assertThat(response.message()).contains("0보다");
-        assertThat(response.balance()).isNull();
-        assertThat(pointRepository.findById(TEST_USER_ID)).isEmpty();
-        assertThat(pointTransactionRepository.countByUserId(TEST_USER_ID)).isZero();
-    }
+            pointService.getTransactions("user-01", 0);
 
-    @Test
-    void usePoint_negativeAmount_failsWithoutPersisting() {
-        pointRepository.deleteById(TEST_USER_ID);
-
-        PointOperationResponse response = pointService.usePoint(TEST_USER_ID, -1);
-
-        assertThat(response.success()).isFalse();
-        assertThat(response.message()).contains("0보다");
-        assertThat(response.balance()).isNull();
-        assertThat(pointTransactionRepository.countByUserId(TEST_USER_ID)).isZero();
-    }
-
-    @Test
-    void getTransactions_whenNoTransactions_returnsEmptyList() {
-        transactionTemplate.executeWithoutResult(status -> {
-            pointTransactionRepository.deleteByUserId(NO_TX_USER_ID);
-            pointRepository.deleteById(NO_TX_USER_ID);
-        });
-
-        PointTransactionsResponse response = pointService.getTransactions(NO_TX_USER_ID, 20);
-
-        assertThat(response.userId()).isEqualTo(NO_TX_USER_ID);
-        assertThat(response.transactions()).isEmpty();
-        assertThat(pointTransactionRepository.countByUserId(NO_TX_USER_ID)).isZero();
-    }
-
-    @Test
-    void getTransactions_afterAbnormalOperation_doesNotAppendRow() {
-        pointRepository.deleteById(TEST_USER_ID);
-        assertThat(pointService.chargePoint(TEST_USER_ID, 100).success()).isTrue();
-        assertThat(pointTransactionRepository.countByUserId(TEST_USER_ID)).isEqualTo(1);
-
-        assertThat(pointService.chargePoint(TEST_USER_ID, 0).success()).isFalse();
-
-        assertThat(pointTransactionRepository.countByUserId(TEST_USER_ID)).isEqualTo(1);
-        PointTransactionsResponse response = pointService.getTransactions(TEST_USER_ID, 20);
-        assertThat(response.transactions()).hasSize(1);
-        assertThat(response.transactions().get(0).amount()).isEqualTo(100L);
-    }
-
-    @Test
-    void getTransactions_afterOneSuccessfulCharge_hasOneEntry() {
-        pointRepository.deleteById(TEST_USER_ID);
-        assertThat(pointService.chargePoint(TEST_USER_ID, 100).success()).isTrue();
-
-        PointTransactionsResponse response = pointService.getTransactions(TEST_USER_ID, 20);
-
-        assertThat(response.userId()).isEqualTo(TEST_USER_ID);
-        assertThat(response.transactions()).hasSize(1);
-        assertThat(response.transactions().get(0).type()).isEqualTo("CHARGE");
-        assertThat(response.transactions().get(0).amount()).isEqualTo(100L);
-        assertThat(response.transactions().get(0).balanceAfter()).isEqualTo(100L);
-    }
-
-    @Test
-    void getTransactions_twoUsersInterleaved_threeEachAndSixTotalInDb() {
-        transactionTemplate.executeWithoutResult(status -> {
-            pointTransactionRepository.deleteByUserId(USER_A);
-            pointTransactionRepository.deleteByUserId(USER_B);
-            pointRepository.deleteById(USER_A);
-            pointRepository.deleteById(USER_B);
-        });
-
-        assertThat(pointService.chargePoint(USER_A, 100).success()).isTrue();
-        assertThat(pointService.chargePoint(USER_B, 100).success()).isTrue();
-        assertThat(pointService.usePoint(USER_A, 10).success()).isTrue();
-        assertThat(pointService.usePoint(USER_B, 10).success()).isTrue();
-        assertThat(pointService.chargePoint(USER_A, 50).success()).isTrue();
-        assertThat(pointService.chargePoint(USER_B, 50).success()).isTrue();
-
-        PointTransactionsResponse forA = pointService.getTransactions(USER_A, 20);
-        PointTransactionsResponse forB = pointService.getTransactions(USER_B, 20);
-
-        assertThat(forA.transactions()).hasSize(3);
-        assertThat(forB.transactions()).hasSize(3);
-        assertThat(pointTransactionRepository.countByUserId(USER_A)).isEqualTo(3);
-        assertThat(pointTransactionRepository.countByUserId(USER_B)).isEqualTo(3);
-        assertThat(
-            pointTransactionRepository.countByUserId(USER_A)
-                + pointTransactionRepository.countByUserId(USER_B))
-            .isEqualTo(6);
-        assertThat(pointTransactionRepository.count()).isEqualTo(6);
+            verify(pointTransactionRepository).findByUserIdOrderByTimestampDesc(
+                    eq("user-01"),
+                    argThat(p -> p.getPageSize() == 1));
+        }
     }
 }

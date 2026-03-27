@@ -1,5 +1,6 @@
 package com.example.spring_01_boot.point.service;
 
+import com.example.spring_01_boot.point.dto.PointBalanceResponse;
 import com.example.spring_01_boot.point.dto.PointOperationResponse;
 import com.example.spring_01_boot.point.dto.PointTransactionsResponse;
 
@@ -9,7 +10,7 @@ import com.example.spring_01_boot.point.dto.PointTransactionsResponse;
  */
 public interface PointService {
 
-    int getPoint(String userId);
+    PointBalanceResponse getPoint(String userId);
 
     PointOperationResponse chargePoint(String userId, int amount);
 
